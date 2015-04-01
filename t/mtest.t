@@ -1,12 +1,13 @@
-use Test;
-BEGIN{ $| = 1; plan tests => 24;}
-END {print "not ok 1\n" unless $loaded;}
-use Math::Matlab::Engine;
-$loaded = 1;
-ok(1);
+use Test::More tests => 23;
 
-$ep = Math::Matlab::Engine->new;
+use strict;
+use warnings;
+
+use Math::Matlab::Engine;
+
+my $ep = Math::Matlab::Engine->new;
 ok($ep->PutMatrix('N',2,3,[1,2,3,4,5,6]));
+my $n;
 ok($n=$ep->GetMatrix('N'));
 ok($n->[0]->[0],1);
 ok($n->[0]->[1],2);
@@ -23,21 +24,21 @@ ok($ep->EvalString("N1=N*E1"));
 ok($ep->EvalString("N2=N*E2"));
 ok($ep->EvalString("N3=N*E3"));
 
-$n1 = $ep->GetMatrix('N1');
+my $n1 = $ep->GetMatrix('N1');
 ok($n1->[0]->[0],1);
 ok(!defined($n1->[0]->[1]));
 ok($n1->[1]->[0],4);
 
-$n2 = $ep->GetMatrix('N2');
+my $n2 = $ep->GetMatrix('N2');
 ok($n2->[0]->[0],2);
 ok(!defined($n2->[0]->[1]));
 ok($n2->[1]->[0],5);
 
-$n3 = $ep->GetMatrix('N3');
+my $n3 = $ep->GetMatrix('N3');
 ok($n3->[0]->[0],3);
 ok(!defined($n3->[0]->[1]));
 ok($n3->[1]->[0],6);
 
-
-
 $ep->Close;
+
+done_testing;
