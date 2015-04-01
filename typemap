@@ -1,13 +1,13 @@
 TYPEMAP
-Engine *			ENG_OBJ
+EngineIface *			ENG_OBJ
 const char *			T_PV
 double *			T_PV
 
 INPUT
 ENG_OBJ
-	{
 	$var = ($type) SvIV((SV*)SvRV($arg));
-	}
+ENG_REF
+	$var = ($type) SvIV((SV*)SvRV($arg));
 
 OUTPUT
 ENG_OBJ

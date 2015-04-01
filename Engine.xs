@@ -3,7 +3,7 @@
 #include "XSUB.h"
 
 #include "engine.h"
-#define BUFSIZE 256
+#define BUFSIZE 1024*256
 
 static int
 not_here(char *s)
@@ -19,8 +19,13 @@ constant(char *name, int len, int arg)
     return 0;
 }
 
-MODULE = Math::Matlab::Engine		PACKAGE = Math::Matlab::Engine	PREFIX = eng
+typedef struct {
+	Engine * ep;
+	char * EvalBuf;
+} EngineIface;
 
+MODULE = Math::Matlab::Engine		PACKAGE = Math::Matlab::Engine	PREFIX = eng
+PROTOTYPES: ENABLE
 
 double
 constant(sv,arg)
@@ -37,81 +42,113 @@ constant(sv,arg)
 
 
 
-Engine *
+EngineIface *
 new(CLASS)
 	char *		CLASS
     CODE:
     {
-	Engine *ep;
+	EngineIface *eng;
 
-	if (!(ep = engOpen("\0"))) {
-		croak ("Can't start MATLAB engine");
-	}
+	if (NULL == (eng = malloc(sizeof(EngineIface))))
+		croak ("Cannot allocate engine object");
 
-	RETVAL = ep;
+	char* start_string = NULL;
+	if (!(eng->ep = engOpen(start_string) ))
+		croak ("Failed to start MATLAB engine");
+
+	// Alloc the buffer for the output of evals
+	if (NULL == (eng->EvalBuf = malloc(BUFSIZE)))
+		croak ("Failed to allocate eval output buffer");
+
+	engOutputBuffer(eng->ep, eng->EvalBuf, BUFSIZE);
+
+
+	RETVAL = eng;
     }
     OUTPUT:
 	RETVAL
 
+
+
 int
-engClose(ep)
-	Engine *	ep
+engClose(eng)
+	EngineIface *	eng
     CODE:
     {
-	RETVAL = 1 - engClose(ep);
+	RETVAL = 1 - engClose(eng->ep);
     }
     OUTPUT:
 	RETVAL
 
-int
-engEvalString(ep, string)
-	Engine *	ep
+void
+engDESTROY(eng)
+	EngineIface * eng
+	CODE:
+	{
+	engClose(eng->ep);
+	free(eng->EvalBuf);
+	free(eng);
+	}
+
+SV*
+engEvalString(eng, string)
+	EngineIface *	eng
 	const char *	string
     CODE:
     {
-	RETVAL = (engEvalString(ep, string) == 0);
+	if (engEvalString(eng->ep, string) == 0) {
+#		fprintf(stderr, "DEBUG: String frmo eval=%s$\n",eng->EvalBuf);
+#		fprintf(stderr, "DEBUG: EvalString on MATLAB engine %x\n",eng->ep);
+		RETVAL = newSVpv(eng->EvalBuf,0);
+	} else {
+		// We couldnt talk to the matlab engine.
+		// return undef
+#		fprintf(stderr, "ERROR: Could not talk to MATLAB engine: %x\n",eng->ep);
+        XSRETURN_UNDEF;
+	}
     }
     OUTPUT:
 	RETVAL
 
 
 AV *
-engGetArrayList(ep, name)
-	Engine *	ep
+engGetArrayList(eng, name)
+	EngineIface *	eng
 	const char *	name
 
     PPCODE:
     {
 	mxArray *matrix;
-	int nrdim, *dims, i, nelem;
+	int *dims, i, nelem;
+	int nrdim;
 	double *vals;
 
-	matrix = engGetArray(ep, name);
+	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
-	nrdim = mxGetNumberOfDimensions(matrix);
-	printf("%d dimensions\n",nrdim);
+	nrdim = (int) mxGetNumberOfDimensions(matrix);
+//	printf("%d dimensions\n",nrdim);
 
-	dims = mxGetDimensions(matrix);
+	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-		printf("\t%d\n",*(dims+i));
+//		printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
 	for(i=0;i<nelem;i++) {
 		XPUSHs(sv_2mortal(newSVnv(*(vals+i))));
-		printf("%6.4f,",*(vals+i));
+//		printf("%6.4f,",*(vals+i));
 	}
-	printf("\n");
+//	printf("\n");
 
-		
+
     }
 
 SV *
-engGetArrayListRef(ep, name)
-	Engine *	ep
+engGetArrayListRef(eng, name)
+	EngineIface *	eng
 	const char *	name
 
     CODE:
@@ -121,26 +158,26 @@ engGetArrayListRef(ep, name)
 	double *vals;
 	AV *arr;
 
-	matrix = engGetArray(ep, name);
+	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
 	nrdim = mxGetNumberOfDimensions(matrix);
-	printf("%d dimensions\n",nrdim);
+#	printf("%d dimensions\n",nrdim);
 
-	dims = mxGetDimensions(matrix);
+	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-		printf("\t%d\n",*(dims+i));
+#		printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
 	arr = newAV();
 	for(i=0;i<nelem;i++) {
 		av_push(arr, newSVnv(*(vals+i)));
-		printf("%6.4f,",*(vals+i));
+#		printf("%6.4f,",*(vals+i));
 	}
-	printf("\n");	
+#	printf("\n");
 
 	RETVAL = newRV_inc((SV *) arr);
     }
@@ -148,8 +185,8 @@ engGetArrayListRef(ep, name)
 	RETVAL
 
 SV *
-engGetArray2dim(ep, name)
-	Engine *	ep
+engGetArray2dim(eng, name)
+	EngineIface *	eng
 	const char *	name
 
     CODE:
@@ -159,20 +196,20 @@ engGetArray2dim(ep, name)
 	double *vals;
 	AV *arr, *mat;
 
-	matrix = engGetArray(ep, name);
+	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
 	nrdim = mxGetNumberOfDimensions(matrix);
-	printf("%d dimensions\n",nrdim);
+#	printf("%d dimensions\n",nrdim);
 
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
 
-	dims = mxGetDimensions(matrix);
+	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-		printf("\t%d\n",*(dims+i));
+#		printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
@@ -180,12 +217,12 @@ engGetArray2dim(ep, name)
 	for(i=0;i<*(dims+1);i++) {
 		arr = newAV();
 		for(j=0;j<*dims;j++) {
-			printf("%6.4f,",*vals);
+#			printf("%6.4f,",*vals);
 			av_push(arr, newSVnv(*(vals++)));
 		}
 		av_push(mat, newRV_inc((SV *) arr));
 	}
-	printf("\n");	
+#	printf("\n");
 
 	RETVAL = newRV_inc((SV *) mat);
     }
@@ -193,8 +230,8 @@ engGetArray2dim(ep, name)
 	RETVAL
 
 SV *
-engGetArray(ep, name)
-	Engine *	ep
+engGetArray(eng, name)
+	EngineIface *	eng
 	const char *	name
 
     CODE:
@@ -204,14 +241,14 @@ engGetArray(ep, name)
 	double *data;
 	AV **arrays;
 
-	matrix = engGetArray(ep, name);
+	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
 	dim = mxGetNumberOfDimensions(matrix);
 
 # 30.10.02: reverse order of d
-	dtmp = mxGetDimensions(matrix);
+	dtmp = (int*) mxGetDimensions(matrix);
 	d = (int *) calloc(dim + 1, sizeof(int));
 	for(i=0;i<dim;i++)
 		*(d+dim-1-i) = *(dtmp+i);
@@ -256,8 +293,8 @@ engGetArray(ep, name)
 	RETVAL
 
 int
-engPutArray(ep, name, dims, data)
-	Engine *	ep
+engPutArray(eng, name, dims, data)
+	EngineIface *	eng
 	const char *	name
 	SV *		dims
 	SV *		data
@@ -277,8 +314,9 @@ engPutArray(ep, name, dims, data)
 #	printf("found %d dimensions\n", ndim + 1);
 	d = (int *) calloc(ndim + 1, sizeof(int));
 # 30.10.02: reverse order of creation of d
-#	for(i=0;i<=ndim;i++) {
-	for(i=ndim;i>=0;i--) {
+# 08.11.06: Reset this back to original order. Now is consistent wtih PutMatrix
+	for(i=0;i<=ndim;i++) {
+#	for(i=ndim;i>=0;i--) {
 		sv = av_shift(dimarr);
 		if (SvIOK(sv)) {
 #			printf("Integer value: %d\n", SvIV(sv));
@@ -294,7 +332,7 @@ engPutArray(ep, name, dims, data)
 #			printf("Don't know what it is!\n");
 			*(d+i) = 1;
 		}
-#		d[i] = (int) SvIV(sv);
+		d[i] = (int) SvIV(sv);
 #		printf("dimension %d: %d\n", i, d[i]);
 	}
 
@@ -303,9 +341,10 @@ engPutArray(ep, name, dims, data)
 
 #	printf("Array has %d elements\n", nelem);
 
-	mat = mxCreateDoubleMatrix(1, nelem + 1, mxREAL);
+	mat = mxCreateNumericArray( ndim+1, (size_t*) d,  mxDOUBLE_CLASS, mxREAL);
+	#mat = mxCreateDoubleMatrix(1, nelem + 1, mxREAL);
 	values = mxGetPr(mat);
-	
+
 #	printf("array has %d elements\n", nelem + 1);
 	for(i=0;i<=nelem;i++) {
 #		sv = av_shift(arr);
@@ -325,21 +364,26 @@ engPutArray(ep, name, dims, data)
 #			printf("Don't know what it is!\n");
 			*(values+i) = 0.0;
 		}
-		
+
 #		printf("value nr. %d is %f\n", i + 1, *(values+i));
 	}
 
-	mxSetName(mat, name);
-	mxSetDimensions(mat, d, ndim + 1);
+	// This is now obsolete. Not needed.
+	//mxSetName(mat, name);
 
-	RETVAL = 1 - engPutArray(ep, mat);
+	// We now set the dims when we create the array
+	//mxSetDimensions(mat, (mwSize*) d, ndim + 1);
+
+
+	RETVAL = 1 - engPutVariable(eng->ep, name, mat);
+#	RETVAL = 1;
     }
     OUTPUT:
 	RETVAL
-	
+
 int
-engPutMatrix(ep, name, rows, cols, data)
-	Engine *	ep
+engPutMatrix(eng, name, rows, cols, data)
+	EngineIface *	eng
 	const char *	name
 	SV *		rows
 	SV *		cols
@@ -368,7 +412,7 @@ engPutMatrix(ep, name, rows, cols, data)
 
 	mat = mxCreateDoubleMatrix(m, n, mxREAL);
 	values = mxGetPr(mat);
-	
+
 #	printf("array has %d elements\n", nelem + 1);
 	j = 0;
 	for(i=0;i<=nelem;i++) {
@@ -390,23 +434,23 @@ engPutMatrix(ep, name, rows, cols, data)
 #			printf("Don't know what it is!\n");
 			*(values+j) = 0.0;
 		}
-		
+
 #		printf("value nr. %d(%d) is %f\n", i + 1, j + 1, *(values+j));
 		j+=m;
 		if (j > nelem) j-=nelem;
 	}
 
+	// Obsolete. Now not needed
+	// mxSetName(mat, name);
 
-	mxSetName(mat, name);
-
-	RETVAL = 1 - engPutArray(ep, mat);
+	RETVAL = 1 - engPutVariable(eng->ep, name, mat);
     }
     OUTPUT:
 	RETVAL
 
 SV *
-engGetMatrix(ep, name)
-	Engine *	ep
+engGetMatrix(eng, name)
+	EngineIface *	eng
 	const char *	name
 
     CODE:
@@ -416,7 +460,7 @@ engGetMatrix(ep, name)
 	double *vals;
 	AV *arr, *mat;
 
-	matrix = engGetArray(ep, name);
+	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
@@ -426,7 +470,7 @@ engGetMatrix(ep, name)
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
 
-	dims = mxGetDimensions(matrix);
+	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
 #		printf("\t%d\n",*(dims+i));
@@ -442,7 +486,7 @@ engGetMatrix(ep, name)
 		}
 		av_push(mat, newRV_noinc((SV *) arr));
 	}
-#	printf("\n");	
+#	printf("\n");
 
 	RETVAL = newRV_noinc((SV *) mat);
     }
