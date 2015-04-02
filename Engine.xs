@@ -3,23 +3,9 @@
 #include "XSUB.h"
 
 #include "engine.h"
+
 #define BUFSIZE 1024*256
-
 #define MATH_MATLAB_ENGINE_DEBUG 0
-
-static int
-not_here(char *s)
-{
-    croak("%s not implemented on this architecture", s);
-    return -1;
-}
-
-static double
-constant(char *name, int len, int arg)
-{
-    errno = EINVAL;
-    return 0;
-}
 
 typedef struct {
 	Engine * ep;
@@ -28,20 +14,6 @@ typedef struct {
 
 MODULE = Math::Matlab::Engine		PACKAGE = Math::Matlab::Engine	PREFIX = eng
 PROTOTYPES: ENABLE
-
-double
-constant(sv,arg)
-    PREINIT:
-	STRLEN		len;
-    INPUT:
-	SV *		sv
-	char *		s = SvPV(sv, len);
-	int		arg
-    CODE:
-	RETVAL = constant(s,len,arg);
-    OUTPUT:
-	RETVAL
-
 
 
 EngineIface *
@@ -75,11 +47,11 @@ new(CLASS)
 int
 engClose(eng)
 	EngineIface *	eng
-    CODE:
-    {
+	CODE:
+	{
 	RETVAL = 1 - engClose(eng->ep);
-    }
-    OUTPUT:
+	}
+	OUTPUT:
 	RETVAL
 
 void
@@ -121,18 +93,18 @@ engGetArrayList(eng, name)
     PPCODE:
     {
 	mxArray *matrix;
-	int *dims, i, nelem;
-	int nrdim;
+	mwSize nrdim, i, nelem;
+	const mwSize *dims;
 	double *vals;
 
 	matrix = engGetVariable(eng->ep, name);
 	if (matrix == NULL)
 		XSRETURN_UNDEF;
 
-	nrdim = (int) mxGetNumberOfDimensions(matrix);
+	nrdim = mxGetNumberOfDimensions(matrix);
 	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d dimensions\n",nrdim);
 
-	dims = (int*) mxGetDimensions(matrix);
+	dims = mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
 		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
@@ -156,7 +128,8 @@ engGetArrayListRef(eng, name)
     CODE:
     {
 	mxArray *matrix;
-	int nrdim, *dims, i, nelem;
+	mwSize nrdim, i, nelem;
+	const mwSize *dims;
 	double *vals;
 	AV *arr;
 
@@ -167,7 +140,7 @@ engGetArrayListRef(eng, name)
 	nrdim = mxGetNumberOfDimensions(matrix);
 	if( MATH_MATLAB_ENGINE_DEBUG) printf("%d dimensions\n",nrdim);
 
-	dims = (int*) mxGetDimensions(matrix);
+	dims = mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
 		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
@@ -194,7 +167,8 @@ engGetArray2dim(eng, name)
     CODE:
     {
 	mxArray *matrix;
-	int nrdim, *dims, i, j, nelem;
+	mwSize nrdim, i, j, nelem;
+	const mwSize *dims;
 	double *vals;
 	AV *arr, *mat;
 
@@ -208,7 +182,7 @@ engGetArray2dim(eng, name)
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
 
-	dims = (int*) mxGetDimensions(matrix);
+	dims = mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
 		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
@@ -239,7 +213,8 @@ engGetArray(eng, name)
     CODE:
     {
 	mxArray *matrix;
-	int dim, *dtmp, *d, i, j, nelem, newdim;
+	mwSize dim, *d, i, j, nelem, newdim;
+	const mwSize *dtmp;
 	double *data;
 	AV **arrays;
 
@@ -250,8 +225,8 @@ engGetArray(eng, name)
 	dim = mxGetNumberOfDimensions(matrix);
 
 # 30.10.02: reverse order of d
-	dtmp = (int*) mxGetDimensions(matrix);
-	d = (int *) calloc(dim + 1, sizeof(int));
+	dtmp = mxGetDimensions(matrix);
+	d = (mwSize *) calloc(dim + 1, sizeof(mwSize));
 	for(i=0;i<dim;i++)
 		*(d+dim-1-i) = *(dtmp+i);
 
@@ -279,9 +254,21 @@ engGetArray(eng, name)
 	# data points to nelem doubles
 	data = mxGetPr(matrix);
 
+	int size_of_slice = dtmp[dim-2] * dtmp[dim-1];
+	# d(end-1)*mod(mod(i,d(end-1)*d(end)),d(end))  + fix(mod(i,d(end-1)*d(end))/d(end))
+	int slice = -1;
+	int where_base = 0;
+	int where, offset, slice_mod;
 	for(i=0;i<nelem;i++) {
 		if( MATH_MATLAB_ENGINE_DEBUG ) printf("i=%d\n",i);
-		av_push(arrays[0], newSVnv(*(data+i)));
+		if( slice != (i / size_of_slice) ) {
+			slice = (i / size_of_slice);
+			where_base = slice * size_of_slice;
+		}
+		slice_mod = i % size_of_slice;
+		offset = ( dtmp[dim-2] * ( slice_mod % dtmp[dim-1] ) + ( slice_mod/dtmp[dim-1] ) );
+		where = where_base + offset;
+		av_push(arrays[0], newSVnv(*(data+where)));
 
 		newdim = 0;
 		for(j=i;(j + 1) % d[newdim] == 0 && newdim < dim - 1;j=i / d[newdim++]) {
@@ -305,8 +292,7 @@ engPutArray(eng, name, dims, data)
     CODE:
     {
 	AV *arr, *dimarr;
-	I32 nelem, ndim;
-	int i, *d;
+	mwSize nelem, ndim, i, *d;
 	double *values;
 	SV *sv;
 	SV **elem;
@@ -316,7 +302,7 @@ engPutArray(eng, name, dims, data)
 	dimarr = (AV *)SvRV(dims);
 	ndim = av_len(dimarr);
 	if( MATH_MATLAB_ENGINE_DEBUG ) printf("found %d dimensions\n", ndim + 1);
-	d = (int *) calloc(ndim + 1, sizeof(int));
+	d = (mwSize *) calloc(ndim + 1, sizeof(mwSize));
 # 30.10.02: reverse order of creation of d
 # 08.11.06: Reset this back to original order. Now is consistent wtih PutMatrix
 	for(i=0;i<=ndim;i++) {
@@ -345,7 +331,7 @@ engPutArray(eng, name, dims, data)
 
 	if( MATH_MATLAB_ENGINE_DEBUG ) printf("Array has %d elements\n", nelem);
 
-	mat = mxCreateNumericArray( ndim+1, (size_t*) d,  mxDOUBLE_CLASS, mxREAL);
+	mat = mxCreateNumericArray( ndim+1, d,  mxDOUBLE_CLASS, mxREAL);
 	#mat = mxCreateDoubleMatrix(1, nelem + 1, mxREAL);
 	values = mxGetPr(mat);
 
@@ -390,7 +376,7 @@ engPutMatrix(eng, name, rows, cols, data)
 	AV *arr, *dimarr;
 	I32 nelem, ndim;
 	int n, m;
-	int i, j, *d;
+	int i, j;
 	double *values;
 	SV *sv;
 	SV **elem;
@@ -403,38 +389,34 @@ engPutMatrix(eng, name, rows, cols, data)
 	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d columns, %d rows\n",n,m);
 
 	arr = (AV *)SvRV(data);
-	nelem = av_len(arr);
+	nelem = av_len(arr) + 1;
 
 	if( MATH_MATLAB_ENGINE_DEBUG ) printf("Array has %d elements\n", nelem);
 
 	mat = mxCreateDoubleMatrix(m, n, mxREAL);
 	values = mxGetPr(mat);
 
-	if( MATH_MATLAB_ENGINE_DEBUG ) printf("array has %d elements\n", nelem + 1);
-	j = 0;
-	for(i=0;i<=nelem;i++) {
+	for(i=0;i<nelem;i++) {
 		# calculate position of element
 #		sv = av_shift(arr);
 		elem = av_fetch(arr, (I32) i, 0);
 		sv = *elem;
 		if (SvIOK(sv)) {
 			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Integer value: %d\n", SvIV(sv));
-			*(values+j) = (double) SvIV(sv);
+			*(values+i) = (double) SvIV(sv);
 		} else if (SvNOK(sv)) {
-			*(values+j) = SvNV(sv);
+			*(values+i) = SvNV(sv);
 			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Double value: %f\n", *(values+i));
 		} else if (SvPOK(sv)) {
 			STRLEN len;
 			if( MATH_MATLAB_ENGINE_DEBUG ) printf("String value: %s\n", SvPV(sv, len));
-			*(values+j) = atof(SvPV(sv, len));
+			*(values+i) = atof(SvPV(sv, len));
 		} else {
 			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Don't know what it is!\n");
-			*(values+j) = 0.0;
+			*(values+i) = 0.0;
 		}
 
-		if( MATH_MATLAB_ENGINE_DEBUG ) printf("value nr. %d(%d) is %f\n", i + 1, j + 1, *(values+j));
-		j+=m;
-		if (j > nelem) j-=nelem;
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("value nr. %d is %f\n", i + 1, *(values+i));
 	}
 
 	RETVAL = 1 - engPutVariable(eng->ep, name, mat);
@@ -450,7 +432,8 @@ engGetMatrix(eng, name)
     CODE:
     {
 	mxArray *matrix;
-	int nrdim, *dims, i, j, nelem;
+	mwSize nrdim, i, j, nelem;
+	const mwSize *dims;
 	double *vals;
 	AV *arr, *mat;
 
@@ -464,7 +447,7 @@ engGetMatrix(eng, name)
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
 
-	dims = (int*) mxGetDimensions(matrix);
+	dims = mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
 		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
