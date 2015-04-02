@@ -5,6 +5,8 @@
 #include "engine.h"
 #define BUFSIZE 1024*256
 
+#define MATH_MATLAB_ENGINE_DEBUG 0
+
 static int
 not_here(char *s)
 {
@@ -97,14 +99,14 @@ engEvalString(eng, string)
     CODE:
     {
 	if (engEvalString(eng->ep, string) == 0) {
-#		fprintf(stderr, "DEBUG: String frmo eval=%s$\n",eng->EvalBuf);
-#		fprintf(stderr, "DEBUG: EvalString on MATLAB engine %x\n",eng->ep);
+		if( MATH_MATLAB_ENGINE_DEBUG ) fprintf(stderr, "DEBUG: String from eval=%s$\n",eng->EvalBuf);
+		if( MATH_MATLAB_ENGINE_DEBUG ) fprintf(stderr, "DEBUG: EvalString on MATLAB engine %x\n",eng->ep);
 		RETVAL = newSVpv(eng->EvalBuf,0);
 	} else {
 		// We couldnt talk to the matlab engine.
 		// return undef
-#		fprintf(stderr, "ERROR: Could not talk to MATLAB engine: %x\n",eng->ep);
-        XSRETURN_UNDEF;
+		if( MATH_MATLAB_ENGINE_DEBUG ) fprintf(stderr, "ERROR: Could not talk to MATLAB engine: %x\n",eng->ep);
+		XSRETURN_UNDEF;
 	}
     }
     OUTPUT:
@@ -128,20 +130,20 @@ engGetArrayList(eng, name)
 		XSRETURN_UNDEF;
 
 	nrdim = (int) mxGetNumberOfDimensions(matrix);
-//	printf("%d dimensions\n",nrdim);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d dimensions\n",nrdim);
 
 	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-//		printf("\t%d\n",*(dims+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
 	for(i=0;i<nelem;i++) {
 		XPUSHs(sv_2mortal(newSVnv(*(vals+i))));
-//		printf("%6.4f,",*(vals+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("%6.4f,",*(vals+i));
 	}
-//	printf("\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("\n");
 
 
     }
@@ -163,21 +165,21 @@ engGetArrayListRef(eng, name)
 		XSRETURN_UNDEF;
 
 	nrdim = mxGetNumberOfDimensions(matrix);
-#	printf("%d dimensions\n",nrdim);
+	if( MATH_MATLAB_ENGINE_DEBUG) printf("%d dimensions\n",nrdim);
 
 	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-#		printf("\t%d\n",*(dims+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
 	arr = newAV();
 	for(i=0;i<nelem;i++) {
 		av_push(arr, newSVnv(*(vals+i)));
-#		printf("%6.4f,",*(vals+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("%6.4f,",*(vals+i));
 	}
-#	printf("\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("\n");
 
 	RETVAL = newRV_inc((SV *) arr);
     }
@@ -201,7 +203,7 @@ engGetArray2dim(eng, name)
 		XSRETURN_UNDEF;
 
 	nrdim = mxGetNumberOfDimensions(matrix);
-#	printf("%d dimensions\n",nrdim);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d dimensions\n",nrdim);
 
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
@@ -209,7 +211,7 @@ engGetArray2dim(eng, name)
 	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-#		printf("\t%d\n",*(dims+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
@@ -217,12 +219,12 @@ engGetArray2dim(eng, name)
 	for(i=0;i<*(dims+1);i++) {
 		arr = newAV();
 		for(j=0;j<*dims;j++) {
-#			printf("%6.4f,",*vals);
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("%6.4f,",*vals);
 			av_push(arr, newSVnv(*(vals++)));
 		}
 		av_push(mat, newRV_inc((SV *) arr));
 	}
-#	printf("\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("\n");
 
 	RETVAL = newRV_inc((SV *) mat);
     }
@@ -253,35 +255,37 @@ engGetArray(eng, name)
 	for(i=0;i<dim;i++)
 		*(d+dim-1-i) = *(dtmp+i);
 
-#	printf("%d dimensions: ",dim);
-#	for(i=0;i<dim;i++) printf(" %d",*(d+i));
-#	for(i=0;i<dim;i++) printf(" %d",*(dtmp+i));
-#	printf("\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) {
+		printf("%d dimensions: ",dim);
+		for(i=0;i<dim;i++) printf(" %d",*(d+i));
+		for(i=0;i<dim;i++) printf(" %d",*(dtmp+i));
+		printf("\n");
+	}
 
 	# allocate dim arrays and initialize
 	New(1, arrays, dim, AV*);
 	for(i=0;i<dim;i++)
 		arrays[i] = newAV();
 
-#	printf("memory allocated\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("memory allocated\n");
 
 	# determine total number of elements
 	nelem = 1;
 	for(i=0;i<dim;i++)
 		nelem *= *(d+i);
 
-#	printf("total number of elements: %d\n",nelem);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("total number of elements: %d\n",nelem);
 
 	# data points to nelem doubles
 	data = mxGetPr(matrix);
 
 	for(i=0;i<nelem;i++) {
-#		printf("i=%d\n",i);
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("i=%d\n",i);
 		av_push(arrays[0], newSVnv(*(data+i)));
 
 		newdim = 0;
 		for(j=i;(j + 1) % d[newdim] == 0 && newdim < dim - 1;j=i / d[newdim++]) {
-#			printf ("new dimension! step %d, j=%d\n",newdim,j);
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf ("new dimension! step %d, j=%d\n",newdim,j);
 			av_push(arrays[newdim+1], newRV_inc((SV *) arrays[newdim]));
 			arrays[newdim] = newAV();
 		}
@@ -311,7 +315,7 @@ engPutArray(eng, name, dims, data)
 	# get dimensions
 	dimarr = (AV *)SvRV(dims);
 	ndim = av_len(dimarr);
-#	printf("found %d dimensions\n", ndim + 1);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("found %d dimensions\n", ndim + 1);
 	d = (int *) calloc(ndim + 1, sizeof(int));
 # 30.10.02: reverse order of creation of d
 # 08.11.06: Reset this back to original order. Now is consistent wtih PutMatrix
@@ -319,61 +323,54 @@ engPutArray(eng, name, dims, data)
 #	for(i=ndim;i>=0;i--) {
 		sv = av_shift(dimarr);
 		if (SvIOK(sv)) {
-#			printf("Integer value: %d\n", SvIV(sv));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Integer value: %d\n", SvIV(sv));
 			*(d+i) = SvIV(sv);
 		} else if (SvNOK(sv)) {
 			*(d+i) = (int) SvNV(sv);
-#			printf("Double value - rounded: %f\n", *(d+i));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Double value - rounded: %f\n", *(d+i));
 		} else if (SvPOK(sv)) {
 			STRLEN len;
-#			printf("String value: %s\n", SvPV(sv, len));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("String value: %s\n", SvPV(sv, len));
 			*(d+i) = atoi(SvPV(sv, len));
 		} else {
-#			printf("Don't know what it is!\n");
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Don't know what it is!\n");
 			*(d+i) = 1;
 		}
 		d[i] = (int) SvIV(sv);
-#		printf("dimension %d: %d\n", i, d[i]);
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("dimension %d: %d\n", i, d[i]);
 	}
 
 	arr = (AV *)SvRV(data);
 	nelem = av_len(arr);
 
-#	printf("Array has %d elements\n", nelem);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("Array has %d elements\n", nelem);
 
 	mat = mxCreateNumericArray( ndim+1, (size_t*) d,  mxDOUBLE_CLASS, mxREAL);
 	#mat = mxCreateDoubleMatrix(1, nelem + 1, mxREAL);
 	values = mxGetPr(mat);
 
-#	printf("array has %d elements\n", nelem + 1);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("array has %d elements\n", nelem + 1);
 	for(i=0;i<=nelem;i++) {
 #		sv = av_shift(arr);
 		elem = av_fetch(arr, (I32) i, 0);
 		sv = *elem;
 		if (SvIOK(sv)) {
-#			printf("Integer value: %d\n", SvIV(sv));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Integer value: %d\n", SvIV(sv));
 			*(values+i) = (double) SvIV(sv);
 		} else if (SvNOK(sv)) {
 			*(values+i) = SvNV(sv);
-#			printf("Double value: %f\n", *(values+i));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Double value: %f\n", *(values+i));
 		} else if (SvPOK(sv)) {
 			STRLEN len;
-#			printf("String value: %s\n", SvPV(sv, len));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("String value: %s\n", SvPV(sv, len));
 			*(values+i) = atof(SvPV(sv, len));
 		} else {
-#			printf("Don't know what it is!\n");
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Don't know what it is!\n");
 			*(values+i) = 0.0;
 		}
 
-#		printf("value nr. %d is %f\n", i + 1, *(values+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("value nr. %d is %f\n", i + 1, *(values+i));
 	}
-
-	// This is now obsolete. Not needed.
-	//mxSetName(mat, name);
-
-	// We now set the dims when we create the array
-	//mxSetDimensions(mat, (mwSize*) d, ndim + 1);
-
 
 	RETVAL = 1 - engPutVariable(eng->ep, name, mat);
 #	RETVAL = 1;
@@ -403,17 +400,17 @@ engPutMatrix(eng, name, rows, cols, data)
 	n = SvIV(cols);
 	m = SvIV(rows);
 
-#	printf("%d columns, %d rows\n",n,m);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d columns, %d rows\n",n,m);
 
 	arr = (AV *)SvRV(data);
 	nelem = av_len(arr);
 
-#	printf("Array has %d elements\n", nelem);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("Array has %d elements\n", nelem);
 
 	mat = mxCreateDoubleMatrix(m, n, mxREAL);
 	values = mxGetPr(mat);
 
-#	printf("array has %d elements\n", nelem + 1);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("array has %d elements\n", nelem + 1);
 	j = 0;
 	for(i=0;i<=nelem;i++) {
 		# calculate position of element
@@ -421,27 +418,24 @@ engPutMatrix(eng, name, rows, cols, data)
 		elem = av_fetch(arr, (I32) i, 0);
 		sv = *elem;
 		if (SvIOK(sv)) {
-#			printf("Integer value: %d\n", SvIV(sv));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Integer value: %d\n", SvIV(sv));
 			*(values+j) = (double) SvIV(sv);
 		} else if (SvNOK(sv)) {
 			*(values+j) = SvNV(sv);
-#			printf("Double value: %f\n", *(values+i));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Double value: %f\n", *(values+i));
 		} else if (SvPOK(sv)) {
 			STRLEN len;
-#			printf("String value: %s\n", SvPV(sv, len));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("String value: %s\n", SvPV(sv, len));
 			*(values+j) = atof(SvPV(sv, len));
 		} else {
-#			printf("Don't know what it is!\n");
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("Don't know what it is!\n");
 			*(values+j) = 0.0;
 		}
 
-#		printf("value nr. %d(%d) is %f\n", i + 1, j + 1, *(values+j));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("value nr. %d(%d) is %f\n", i + 1, j + 1, *(values+j));
 		j+=m;
 		if (j > nelem) j-=nelem;
 	}
-
-	// Obsolete. Now not needed
-	// mxSetName(mat, name);
 
 	RETVAL = 1 - engPutVariable(eng->ep, name, mat);
     }
@@ -465,7 +459,7 @@ engGetMatrix(eng, name)
 		XSRETURN_UNDEF;
 
 	nrdim = mxGetNumberOfDimensions(matrix);
-#	printf("%d dimensions\n",nrdim);
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("%d dimensions\n",nrdim);
 
 	if (nrdim != 2)
 		XSRETURN_UNDEF;
@@ -473,7 +467,7 @@ engGetMatrix(eng, name)
 	dims = (int*) mxGetDimensions(matrix);
 	nelem = 1;
 	for(i=0;i<nrdim;i++) {
-#		printf("\t%d\n",*(dims+i));
+		if( MATH_MATLAB_ENGINE_DEBUG ) printf("\t%d\n",*(dims+i));
 		nelem *= *(dims+i);
 	}
 	vals = mxGetPr(matrix);
@@ -481,12 +475,12 @@ engGetMatrix(eng, name)
 	for(i=0;i<*dims;i++) {
 		arr = newAV();
 		for(j=0;j<*(dims+1);j++) {
-#			printf("%6.4f,",*(vals+i+j*(*dims)));
+			if( MATH_MATLAB_ENGINE_DEBUG ) printf("%6.4f,",*(vals+i+j*(*dims)));
 			av_push(arr, newSVnv(*(vals+i+j*(*dims))));
 		}
 		av_push(mat, newRV_noinc((SV *) arr));
 	}
-#	printf("\n");
+	if( MATH_MATLAB_ENGINE_DEBUG ) printf("\n");
 
 	RETVAL = newRV_noinc((SV *) mat);
     }
